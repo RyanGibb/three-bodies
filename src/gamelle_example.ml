@@ -1,25 +1,41 @@
 open Gamelle
 
 type particle = { pos : Point.t; speed : Vec.t; mass : float }
-type state = particle list list
+type settings = { n_bodies : int; g : float }
 
+type state = {
+  is_in_menu : bool;
+  settings : settings;
+  particle_history : particle list list;
+}
+
+let button_box = Box.v (Vec.v 10. 10.) (Size.v 50. 50.)
 let box = Box.v Vec.zero (Size.v 1000. 1000.)
 let speed_range = Box.v (Point.v (-50.) (-50.)) (Size.v 100. 100.)
-let num_part = 2
+let num_part = 3
 let () = Random.self_init ()
-let g = 1000.
 let collision_damping = 0.99
 let circle_of_particle p = Circle.v p.pos (p.mass /. 100.)
 
-let init =
+let init_particles { n_bodies; g = _ } =
   [
-    List.init num_part (fun _i ->
+    List.init n_bodies (fun _i ->
         {
           pos = Box.random_mem box;
           speed = Box.random_mem speed_range;
           mass = Random.float 5000. +. 2000.;
         });
   ]
+
+let init_settings = { n_bodies = 3; g = 1000. }
+
+let init =
+  {
+    is_in_menu = false;
+    settings = init_settings;
+    particle_history = init_particles init_settings;
+  }
+
 (* [ *)
 (*   { pos = Point.v 300. 600.; speed = Vec.v 100. 0.; mass = 2000. }; *)
 (*   { pos = Point.v 700. 500.; speed = Vec.v 0. 0.; mass = 10000. }; *)
@@ -30,15 +46,15 @@ let init =
 (*     mass = 1000. *)
 (*   } ] *)
 
-let gravity_force p1 p2 =
+let gravity_force ~g p1 p2 =
   let d = Vec.(norm @@ (p2.pos - p1.pos)) in
   if d = 0. then Vec.zero
   else
     let i = g *. p1.mass *. p2.mass /. (d *. d) in
     Vec.(i * unit (p2.pos - p1.pos))
 
-let gravity_forces p particles =
-  List.fold_left Vec.( + ) Vec.zero (List.map (gravity_force p) particles)
+let gravity_forces ~g p particles =
+  List.fold_left Vec.( + ) Vec.zero (List.map (gravity_force ~g p) particles)
 
 let collision p1 p2 =
   let c1 = circle_of_particle p1 and c2 = circle_of_particle p2 in
@@ -63,20 +79,23 @@ let collision p1 p2 =
 let collisions p particles =
   match List.find_map (collision p) particles with Some p -> p | None -> p
 
-let update_particle particles p =
+let update_particle ~settings particles p =
   let { pos; speed; mass } = collisions p particles in
-  let speed = Vec.(speed + (dt () * (gravity_forces p particles / mass))) in
+  let speed =
+    Vec.(speed + (dt () * (gravity_forces ~g:settings.g p particles / mass)))
+  in
   let new_pos = Vec.(pos + (dt () * speed)) in
   { pos = new_pos; speed; mass }
 
-let update_particles particles = List.map (update_particle particles) particles
+let update_particles ~settings particles =
+  List.map (update_particle ~settings particles) particles
 
 let rec bound_list i li =
   if i = 0 then []
   else match li with [] -> [] | elt :: li -> elt :: bound_list (i - 1) li
 
-let update state =
-  bound_list (60 * 2) @@ (update_particles (List.hd state) :: state)
+let update_history ~settings state =
+  bound_list (60 * 2) @@ (update_particles ~settings (List.hd state) :: state)
 
 let render_particle ~io ~color p = Circle.fill ~io ~color (circle_of_particle p)
 
@@ -129,13 +148,56 @@ let render_particles ~io i particles =
   (* Circle.fill ~io ~color:Color.red (Circle.v Vec.zero 1.); *)
   List.iter (render_particle ~io ~color) particles
 
-let render ~io state = List.iteri (render_particles ~io) state
+let render ~io state =
+  List.iteri (render_particles ~io) state.particle_history;
+  Box.fill ~io ~color:Color.red button_box;
+  Box.draw ~io ~color:Color.white button_box
+
+let menu ~io =
+  let (reset, close, settings), _box =
+    Ui.(
+      window ~io (Vec.v 10. 10.) (fun ui ->
+          label [%ui] ~style:Style.(horizontal Center) "Settings";
+          let n_bodies =
+            int_of_float @@ slider [%ui] ~init:3. ~min:1. ~max:5.
+          in
+          label [%ui] (Printf.sprintf "Bodies : %i" n_bodies);
+          let g = slider [%ui] ~init:1000. ~min:750. ~max:1500. in
+          label [%ui] (Printf.sprintf "G : %f" g);
+          let reset, close =
+            horizontal [%ui] (fun () ->
+                (button [%ui] "Reset", button [%ui] "Close"))
+          in
+          (reset, close, { n_bodies; g })))
+  in
+  (reset, close, settings)
+
+let update ~io state =
+  if state.is_in_menu then
+    let reset, close, settings = menu ~io in
+    let state = { state with settings } in
+    let state =
+      if reset then { state with particle_history = init_particles settings }
+      else state
+    in
+    let is_in_menu = if reset || close then false else true in
+    { state with is_in_menu }
+  else if
+    Event.is_down ~io `click_left && Box.mem (Event.mouse_pos ~io) button_box
+  then { state with is_in_menu = true }
+  else
+    {
+      state with
+      particle_history =
+        update_history ~settings:state.settings state.particle_history;
+    }
 
 let () =
   Gamelle.run init @@ fun ~io state ->
   (* Window.set_size ~io (Size.v 800. 800.); *)
+  show_cursor ~io true;
   if Event.is_pressed ~io `escape then raise Exit;
   let state = if Event.is_pressed ~io (`input_char "r") then init else state in
-  let state = update state in
   render ~io state;
+  let state = update ~io state in
   state
