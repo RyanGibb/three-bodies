@@ -1,23 +1,25 @@
 open Gamelle
 
 type particle = { pos : Point.t; speed : Vec.t; mass : float }
-type state = particle list
+type state = particle list list
 
 let box = Box.v Vec.zero (Size.v 1000. 1000.)
 let speed_range = Box.v (Point.v (-50.) (-50.)) (Size.v 100. 100.)
-let num_part = 3
+let num_part = 2
 let () = Random.self_init ()
 let g = 1000.
-let collision_damping = 1.
+let collision_damping = 0.99
 let circle_of_particle p = Circle.v p.pos (p.mass /. 100.)
 
 let init =
-  List.init num_part (fun _i ->
-      {
-        pos = Box.random_mem box;
-        speed = Box.random_mem speed_range;
-        mass = Random.float 5000. +. 2000.;
-      })
+  [
+    List.init num_part (fun _i ->
+        {
+          pos = Box.random_mem box;
+          speed = Box.random_mem speed_range;
+          mass = Random.float 5000. +. 2000.;
+        });
+  ]
 (* [ *)
 (*   { pos = Point.v 300. 600.; speed = Vec.v 100. 0.; mass = 2000. }; *)
 (*   { pos = Point.v 700. 500.; speed = Vec.v 0. 0.; mass = 10000. }; *)
@@ -67,10 +69,16 @@ let update_particle particles p =
   let new_pos = Vec.(pos + (dt () * speed)) in
   { pos = new_pos; speed; mass }
 
-let update state = List.map (update_particle state) state
+let update_particles particles = List.map (update_particle particles) particles
 
-let render_particle ~io p =
-  Circle.fill ~io ~color:Color.white (circle_of_particle p)
+let rec bound_list i li =
+  if i = 0 then []
+  else match li with [] -> [] | elt :: li -> elt :: bound_list (i - 1) li
+
+let update state =
+  bound_list (60 * 2) @@ (update_particles (List.hd state) :: state)
+
+let render_particle ~io ~color p = Circle.fill ~io ~color (circle_of_particle p)
 
 let centre_of_mass particles =
   let total_mass = List.fold_left (fun acc p -> acc +. p.mass) 0. particles in
@@ -103,15 +111,29 @@ let get_drawing_box particles =
   and dy = Float.max (dy +. padding) 100. in
   Box.v_mid mid (Size.v (dx *. 2.) (dy *. 2.))
 
-let render ~io state =
-  let io = View.drawing_box ~scale:true ~set_window_size:false (get_drawing_box state) io in
-  Box.draw ~io ~color:Color.white (get_drawing_box state);
-  Circle.fill ~io ~color:Color.red (Circle.v Vec.zero 1.);
-  List.iter (render_particle ~io) state
+let render_particles ~io i particles =
+  let io =
+    io
+    |> View.drawing_box ~scale:true ~set_window_size:false
+         (get_drawing_box particles)
+    |> View.z_indexed (-i)
+  in
+
+  let color =
+    let open Color in
+    let alpha = 1. /. (float_of_int i +. 1.) in
+    let color = blend (with_a white alpha) red in
+    Color.(with_a color alpha)
+  in
+  (* Box.draw ~io ~color (get_drawing_box particles); *)
+  (* Circle.fill ~io ~color:Color.red (Circle.v Vec.zero 1.); *)
+  List.iter (render_particle ~io ~color) particles
+
+let render ~io state = List.iteri (render_particles ~io) state
 
 let () =
   Gamelle.run init @@ fun ~io state ->
-  Window.set_size ~io (Size.v 800. 800.);
+  (* Window.set_size ~io (Size.v 800. 800.); *)
   if Event.is_pressed ~io `escape then raise Exit;
   let state = if Event.is_pressed ~io (`input_char "r") then init else state in
   let state = update state in
