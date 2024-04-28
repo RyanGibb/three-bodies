@@ -14,6 +14,7 @@ let box = Box.v Vec.zero (Size.v 1000. 1000.)
 let speed_range = Box.v (Point.v (-200.) (-200.)) (Size.v 400. 400.)
 let collision_damping = 0.99
 let circle_of_particle p = Circle.v p.pos (p.mass /. 500.)
+let trace = false
 
 let _solar_system =
   [
@@ -179,7 +180,7 @@ let render_particles ~io i particles =
   List.iter (render_particle ~io ~color) particles
 
 let render ~io state =
-  List.iteri (render_particles ~io) state.particle_history;
+  List.iteri (render_particles ~io) (if trace then state.particle_history else [ List.hd state.particle_history ] );
   Box.fill ~io ~color:Color.red button_box;
   Box.draw ~io ~color:Color.white button_box
 
