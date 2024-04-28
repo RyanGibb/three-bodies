@@ -15,6 +15,50 @@ let speed_range = Box.v (Point.v (-200.) (-200.)) (Size.v 400. 400.)
 let collision_damping = 0.99
 let circle_of_particle p = Circle.v p.pos (p.mass /. 500.)
 
+let _solar_system =
+  [
+    {
+      pos = Vec.v 0. 0.;
+      speed = Vec.v 0. 0.;
+      mass = 500000.;
+    };
+    {
+      pos = Vec.v 200. 0.;
+      speed = Vec.v 0. 600.;
+      mass = 5000.;
+    };
+    {
+      pos = Vec.v 3000. 0.;
+      speed = Vec.v 0. 375.;
+      mass = 10000.;
+    };
+      {
+        pos = Vec.v 3100. 0.;
+        speed = Vec.v 0. 625.;
+        mass = 200.;
+      };
+    {
+      pos = Vec.v 5000. 0.;
+      speed = Vec.v 0. 300.;
+      mass = 50000.;
+    };
+      {
+        pos = Vec.v 5250. 0.;
+        speed = Vec.v 0. 750.;
+        mass = 2500.;
+      };
+      {
+        pos = Vec.v 5500. 0.;
+        speed = Vec.v 0. 650.;
+        mass = 5000.;
+      };
+        (* { *)
+        (*   pos = Vec.v 5550. 0.; *)
+        (*   speed = Vec.v 0. 950.; *)
+        (*   mass = 1000.; *)
+        (* }; *)
+  ]
+
 let init_particles { n_bodies; g = _ } =
   List.init n_bodies (fun _i ->
     {
