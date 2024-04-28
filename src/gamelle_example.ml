@@ -11,40 +11,26 @@ type state = {
 
 let button_box = Box.v (Vec.v 10. 10.) (Size.v 50. 50.)
 let box = Box.v Vec.zero (Size.v 1000. 1000.)
-let speed_range = Box.v (Point.v (-50.) (-50.)) (Size.v 100. 100.)
-let num_part = 3
-let () = Random.self_init ()
+let speed_range = Box.v (Point.v (-200.) (-200.)) (Size.v 400. 400.)
 let collision_damping = 0.99
-let circle_of_particle p = Circle.v p.pos (p.mass /. 100.)
+let circle_of_particle p = Circle.v p.pos (p.mass /. 500.)
 
 let init_particles { n_bodies; g = _ } =
-  [
-    List.init n_bodies (fun _i ->
-        {
-          pos = Box.random_mem box;
-          speed = Box.random_mem speed_range;
-          mass = Random.float 5000. +. 2000.;
-        });
-  ]
+  List.init n_bodies (fun _i ->
+    {
+      pos = Box.random_mem box;
+      speed = Box.random_mem speed_range;
+      mass = 10000.;
+    })
 
 let init_settings = { n_bodies = 3; g = 1000. }
 
-let init =
+let init () =
   {
     is_in_menu = false;
     settings = init_settings;
-    particle_history = init_particles init_settings;
+    particle_history = [ init_particles init_settings ];
   }
-
-(* [ *)
-(*   { pos = Point.v 300. 600.; speed = Vec.v 100. 0.; mass = 2000. }; *)
-(*   { pos = Point.v 700. 500.; speed = Vec.v 0. 0.; mass = 10000. }; *)
-(* ] *)
-(* @ [ { *)
-(*     pos = Point.v 500. 500.; *)
-(*     speed = Vec.v 0. 0.; *)
-(*     mass = 1000. *)
-(*   } ] *)
 
 let gravity_force ~g p1 p2 =
   let d = Vec.(norm @@ (p2.pos - p1.pos)) in
@@ -115,7 +101,7 @@ let get_drawing_box particles =
         let dp = Vec.(mid - p.pos) in
         ( Float.max dx (Float.abs (Vec.x dp)),
           Float.max dy (Float.abs (Vec.y dp)) ))
-      (0., 0.) particles
+      (500., 500.) particles
   in
   let biggest_radius =
     List.fold_left
@@ -177,7 +163,7 @@ let update ~io state =
     let reset, close, settings = menu ~io in
     let state = { state with settings } in
     let state =
-      if reset then { state with particle_history = init_particles settings }
+      if reset then { state with particle_history = [ init_particles settings ] }
       else state
     in
     let is_in_menu = if reset || close then false else true in
@@ -193,11 +179,21 @@ let update ~io state =
     }
 
 let () =
-  Gamelle.run init @@ fun ~io state ->
-  (* Window.set_size ~io (Size.v 800. 800.); *)
+  let () = Random.self_init () in
+  let state = init () in
+  Gamelle.run (state, state) @@ fun ~io (start, state) ->
+  Window.set_size ~io (Size.v 1000. 1000.);
   show_cursor ~io true;
   if Event.is_pressed ~io `escape then raise Exit;
-  let state = if Event.is_pressed ~io (`input_char "r") then init else state in
+  (* restart *)
+  let state = if Event.is_down ~io (`input_char "r") then start else state in
+  (* reload *)
+  let start, state =
+    if Event.is_down ~io (`input_char "R") then
+      let state = init () in
+      state, state
+    else start, state
+  in
   render ~io state;
   let state = update ~io state in
-  state
+  start, state
