@@ -1,7 +1,7 @@
 open Gamelle
 
 type particle = { pos : Point.t; speed : Vec.t; mass : float }
-type settings = { n_bodies : int; g : float }
+type settings = { n_bodies : int; g : float; friction : float }
 
 type state = {
   is_in_menu : bool;
@@ -68,7 +68,7 @@ let init_particles { n_bodies; g = _ } =
       mass = 10000.;
     })
 
-let init_settings = { n_bodies = 3; g = 1000. }
+let init_settings = { n_bodies = 3; g = 1000.; friction = 0.9 }
 
 let init () =
   {
@@ -78,16 +78,22 @@ let init () =
   }
 
 let gravity_force ~g p1 p2 =
-  let d = Vec.(norm @@ (p2.pos - p1.pos)) in
+  let d = Vec.(norm (p2.pos - p1.pos)) in
   if d = 0. then Vec.zero
   else
+    let d =
+      Float.max
+        (Circle.radius (circle_of_particle p1)
+        +. Circle.radius (circle_of_particle p2))
+        d
+    in
     let i = g *. p1.mass *. p2.mass /. (d *. d) in
     Vec.(i * unit (p2.pos - p1.pos))
 
 let gravity_forces ~g p particles =
   List.fold_left Vec.( + ) Vec.zero (List.map (gravity_force ~g p) particles)
 
-let collision p1 p2 =
+let collision ~friction p1 p2 =
   let c1 = circle_of_particle p1 and c2 = circle_of_particle p2 in
   if (not (Circle.intersects c1 c2)) || p1 = p2 then None
   else
@@ -95,7 +101,7 @@ let collision p1 p2 =
     and { pos = x2; speed = v2; mass = m2 } = p2 in
     let open Vec in
     let speed =
-      collision_damping
+      friction
       * (v1
         - 2. *. m2 /. (m1 +. m2)
           *. (dot (v1 - v2) (x1 - x2) /. norm2 (x1 - x2))
@@ -107,11 +113,15 @@ let collision p1 p2 =
     in
     Some { pos; speed; mass = m1 }
 
-let collisions p particles =
-  match List.find_map (collision p) particles with Some p -> p | None -> p
+let collisions ~friction p particles =
+  match List.find_map (collision ~friction p) particles with
+  | Some p -> p
+  | None -> p
 
 let update_particle ~settings particles p =
-  let { pos; speed; mass } = collisions p particles in
+  let { pos; speed; mass } =
+    collisions ~friction:settings.friction p particles
+  in
   let speed =
     Vec.(speed + (dt () * (gravity_forces ~g:settings.g p particles / mass)))
   in
@@ -126,7 +136,7 @@ let rec bound_list i li =
   else match li with [] -> [] | elt :: li -> elt :: bound_list (i - 1) li
 
 let update_history ~settings state =
-  bound_list (60 * 2) @@ (update_particles ~settings (List.hd state) :: state)
+  bound_list (60 * 20) @@ (update_particles ~settings (List.hd state) :: state)
 
 let render_particle ~io ~color p = Circle.fill ~io ~color (circle_of_particle p)
 
@@ -162,13 +172,7 @@ let get_drawing_box particles =
   Box.v_mid mid (Size.v (dx *. 2.) (dy *. 2.))
 
 let render_particles ~io i particles =
-  let io =
-    io
-    |> View.drawing_box ~scale:true ~set_window_size:false
-         (get_drawing_box particles)
-    |> View.z_indexed (-i)
-  in
-
+  let io = View.z_indexed (-i) io in
   let color =
     let open Color in
     let alpha = 1. /. (float_of_int i +. 1.) in
@@ -180,7 +184,12 @@ let render_particles ~io i particles =
   List.iter (render_particle ~io ~color) particles
 
 let render ~io state =
-  List.iteri (render_particles ~io) (if trace then state.particle_history else [ List.hd state.particle_history ] );
+  (let io =
+     io
+     |> View.drawing_box ~scale:true ~set_window_size:false
+          (get_drawing_box (List.hd state.particle_history))
+   in
+   List.iteri (render_particles ~io) (if trace then state.particle_history else [ List.hd state.particle_history ] ));
   Box.fill ~io ~color:Color.red button_box;
   Box.draw ~io ~color:Color.white button_box
 
@@ -189,17 +198,19 @@ let menu ~io =
     Ui.(
       window ~io (Vec.v 10. 10.) (fun ui ->
           label [%ui] ~style:Style.(horizontal Center) "Settings";
-          let n_bodies =
-            int_of_float @@ slider [%ui] ~init:3. ~min:1. ~max:5.
-          in
+          let n_bodies = int_slider [%ui] ~init:3 ~min:1 ~max:7 in
           label [%ui] (Printf.sprintf "Bodies : %i" n_bodies);
           let g = slider [%ui] ~init:1000. ~min:750. ~max:1500. in
           label [%ui] (Printf.sprintf "G : %f" g);
+          let friction =
+            slider [%ui] ~init:init_settings.friction ~min:0. ~max:1.
+          in
+          label [%ui] (Printf.sprintf "Friction : %f" friction);
           let reset, close =
             horizontal [%ui] (fun () ->
                 (button [%ui] "Reset", button [%ui] "Close"))
           in
-          (reset, close, { n_bodies; g })))
+          (reset, close, { n_bodies; g; friction })))
   in
   (reset, close, settings)
 
@@ -227,7 +238,7 @@ let () =
   let () = Random.self_init () in
   let state = init () in
   Gamelle.run (state, state) @@ fun ~io (start, state) ->
-  Window.set_size ~io (Size.v 1000. 1000.);
+  (* Window.set_size ~io (Size.v 1000. 1000.); *)
   show_cursor ~io true;
   if Event.is_pressed ~io `escape then raise Exit;
   (* restart *)
