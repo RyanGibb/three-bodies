@@ -1,7 +1,7 @@
 open Gamelle
 
 type particle = { pos : Point.t; speed : Vec.t; mass : float }
-type settings = { n_bodies : int; g : float; friction : float }
+type settings = { n_bodies : int; g : float; friction : float; trace : bool }
 
 type state = {
   is_in_menu : bool;
@@ -14,61 +14,32 @@ let box = Box.v Vec.zero (Size.v 1000. 1000.)
 let speed_range = Box.v (Point.v (-200.) (-200.)) (Size.v 400. 400.)
 let collision_damping = 0.99
 let circle_of_particle p = Circle.v p.pos (p.mass /. 500.)
-let trace = false
 
 let _solar_system =
   [
-    {
-      pos = Vec.v 0. 0.;
-      speed = Vec.v 0. 0.;
-      mass = 500000.;
-    };
-    {
-      pos = Vec.v 200. 0.;
-      speed = Vec.v 0. 600.;
-      mass = 5000.;
-    };
-    {
-      pos = Vec.v 3000. 0.;
-      speed = Vec.v 0. 375.;
-      mass = 10000.;
-    };
-      {
-        pos = Vec.v 3100. 0.;
-        speed = Vec.v 0. 625.;
-        mass = 200.;
-      };
-    {
-      pos = Vec.v 5000. 0.;
-      speed = Vec.v 0. 300.;
-      mass = 50000.;
-    };
-      {
-        pos = Vec.v 5250. 0.;
-        speed = Vec.v 0. 750.;
-        mass = 2500.;
-      };
-      {
-        pos = Vec.v 5500. 0.;
-        speed = Vec.v 0. 650.;
-        mass = 5000.;
-      };
-        (* { *)
-        (*   pos = Vec.v 5550. 0.; *)
-        (*   speed = Vec.v 0. 950.; *)
-        (*   mass = 1000.; *)
-        (* }; *)
+    { pos = Vec.v 0. 0.; speed = Vec.v 0. 0.; mass = 500000. };
+    { pos = Vec.v 200. 0.; speed = Vec.v 0. 600.; mass = 5000. };
+    { pos = Vec.v 3000. 0.; speed = Vec.v 0. 375.; mass = 10000. };
+    { pos = Vec.v 3100. 0.; speed = Vec.v 0. 625.; mass = 200. };
+    { pos = Vec.v 5000. 0.; speed = Vec.v 0. 300.; mass = 50000. };
+    { pos = Vec.v 5250. 0.; speed = Vec.v 0. 750.; mass = 2500. };
+    { pos = Vec.v 5500. 0.; speed = Vec.v 0. 650.; mass = 5000. };
+    (* { *)
+    (*   pos = Vec.v 5550. 0.; *)
+    (*   speed = Vec.v 0. 950.; *)
+    (*   mass = 1000.; *)
+    (* }; *)
   ]
 
-let init_particles { n_bodies; g = _ } =
+let init_particles { n_bodies; g = _; trace = _; friction = _ } =
   List.init n_bodies (fun _i ->
-    {
-      pos = Box.random_mem box;
-      speed = Box.random_mem speed_range;
-      mass = 10000.;
-    })
+      {
+        pos = Box.random_mem box;
+        speed = Box.random_mem speed_range;
+        mass = 10000.;
+      })
 
-let init_settings = { n_bodies = 3; g = 1000.; friction = 0.9 }
+let init_settings = { n_bodies = 3; g = 1000.; friction = 0.9; trace = false }
 
 let init () =
   {
@@ -189,7 +160,9 @@ let render ~io state =
      |> View.drawing_box ~scale:true ~set_window_size:false
           (get_drawing_box (List.hd state.particle_history))
    in
-   List.iteri (render_particles ~io) (if trace then state.particle_history else [ List.hd state.particle_history ] ));
+   List.iteri (render_particles ~io)
+     (if state.settings.trace then state.particle_history
+      else [ List.hd state.particle_history ]));
   Box.fill ~io ~color:Color.red button_box;
   Box.draw ~io ~color:Color.white button_box
 
@@ -198,6 +171,7 @@ let menu ~io =
     Ui.(
       window ~io (Vec.v 10. 10.) (fun ui ->
           label [%ui] ~style:Style.(horizontal Center) "Settings";
+          let trace = checkbox [%ui] "Trace" in
           let n_bodies = int_slider [%ui] ~init:3 ~min:1 ~max:7 in
           label [%ui] (Printf.sprintf "Bodies : %i" n_bodies);
           let g = slider [%ui] ~init:1000. ~min:750. ~max:1500. in
@@ -210,7 +184,7 @@ let menu ~io =
             horizontal [%ui] (fun () ->
                 (button [%ui] "Reset", button [%ui] "Close"))
           in
-          (reset, close, { n_bodies; g; friction })))
+          (reset, close, { n_bodies; g; friction; trace })))
   in
   (reset, close, settings)
 
@@ -219,7 +193,8 @@ let update ~io state =
     let reset, close, settings = menu ~io in
     let state = { state with settings } in
     let state =
-      if reset then { state with particle_history = [ init_particles settings ] }
+      if reset then
+        { state with particle_history = [ init_particles settings ] }
       else state
     in
     let is_in_menu = if reset || close then false else true in
@@ -247,9 +222,9 @@ let () =
   let start, state =
     if Event.is_down ~io (`input_char "R") then
       let state = init () in
-      state, state
-    else start, state
+      (state, state)
+    else (start, state)
   in
   render ~io state;
   let state = update ~io state in
-  start, state
+  (start, state)
