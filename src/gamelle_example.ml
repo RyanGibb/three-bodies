@@ -1,9 +1,17 @@
 open Gamelle
 
 type particle = { pos : Point.t; speed : Vec.t; mass : float }
-type settings = { n_bodies : int; g : float; friction : float; trace : bool }
+
+type settings = {
+  n_bodies : int;
+  g : float;
+  friction : float;
+  trace : bool;
+  use_solar_system : bool;
+}
 
 type state = {
+  tic : int;
   is_in_menu : bool;
   settings : settings;
   particle_history : particle list list;
@@ -15,7 +23,7 @@ let speed_range = Box.v (Point.v (-200.) (-200.)) (Size.v 400. 400.)
 let collision_damping = 0.99
 let circle_of_particle p = Circle.v p.pos (p.mass /. 500.)
 
-let _solar_system =
+let solar_system =
   [
     { pos = Vec.v 0. 0.; speed = Vec.v 0. 0.; mass = 500000. };
     { pos = Vec.v 200. 0.; speed = Vec.v 0. 600.; mass = 5000. };
@@ -31,18 +39,29 @@ let _solar_system =
     (* }; *)
   ]
 
-let init_particles { n_bodies; g = _; trace = _; friction = _ } =
-  List.init n_bodies (fun _i ->
-      {
-        pos = Box.random_mem box;
-        speed = Box.random_mem speed_range;
-        mass = 10000.;
-      })
+let init_particles
+    { n_bodies; use_solar_system; g = _; trace = _; friction = _ } =
+  if use_solar_system then solar_system
+  else
+    List.init n_bodies (fun _i ->
+        {
+          pos = Box.random_mem box;
+          speed = Box.random_mem speed_range;
+          mass = 10000.;
+        })
 
-let init_settings = { n_bodies = 3; g = 1000.; friction = 0.9; trace = false }
+let init_settings =
+  {
+    n_bodies = 3;
+    g = 1000.;
+    friction = 0.9;
+    trace = false;
+    use_solar_system = false;
+  }
 
 let init () =
   {
+    tic = 0;
     is_in_menu = false;
     settings = init_settings;
     particle_history = [ init_particles init_settings ];
@@ -106,8 +125,10 @@ let rec bound_list i li =
   if i = 0 then []
   else match li with [] -> [] | elt :: li -> elt :: bound_list (i - 1) li
 
-let update_history ~settings state =
-  bound_list (60 * 20) @@ (update_particles ~settings (List.hd state) :: state)
+let update_history ~settings ~tic state =
+  bound_list (60 * 20)
+  @@ update_particles ~settings (List.hd state)
+     :: (if tic > 1 && tic mod 3 = 0 then state else List.tl state)
 
 let render_particle ~io ~color p = Circle.fill ~io ~color (circle_of_particle p)
 
@@ -172,6 +193,7 @@ let menu ~io =
       window ~io (Vec.v 10. 10.) (fun ui ->
           label [%ui] ~style:Style.(horizontal Center) "Settings";
           let trace = checkbox [%ui] "Trace" in
+          let use_solar_system = checkbox [%ui] "Use solar system" in
           let n_bodies = int_slider [%ui] ~init:3 ~min:1 ~max:7 in
           label [%ui] (Printf.sprintf "Bodies : %i" n_bodies);
           let g = slider [%ui] ~init:1000. ~min:750. ~max:1500. in
@@ -184,11 +206,12 @@ let menu ~io =
             horizontal [%ui] (fun () ->
                 (button [%ui] "Reset", button [%ui] "Close"))
           in
-          (reset, close, { n_bodies; g; friction; trace })))
+          (reset, close, { n_bodies; g; friction; trace; use_solar_system })))
   in
   (reset, close, settings)
 
 let update ~io state =
+  let state = { state with tic = state.tic + 1 } in
   if state.is_in_menu then
     let reset, close, settings = menu ~io in
     let state = { state with settings } in
@@ -206,7 +229,8 @@ let update ~io state =
     {
       state with
       particle_history =
-        update_history ~settings:state.settings state.particle_history;
+        update_history ~settings:state.settings ~tic:state.tic
+          state.particle_history;
     }
 
 let () =
